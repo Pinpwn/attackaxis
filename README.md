@@ -4,9 +4,11 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![MITRE ATT&CK](https://img.shields.io/badge/Framework-MITRE%20ATT%26CK-orange.svg)](https://attack.mitre.org/)
 
+![AttackAxis Banner](assets/AttackAxis.png)
+
 ## Introduction
 
-AttackAxis is a sophisticated adversarial simulation platform designed to generate high-fidelity security telemetry. Unlike static log generators, AttackAxis models the complex, stateful behaviors of real-world threat actors within a simulated organizational environment. It is engineered for security operations center (SOC) training, SIEM validation, and the development of robust detection engineering pipelines.
+AttackAxis is an adversarial simulation platform designed to generate high-fidelity security telemetry. Unlike static log generators, AttackAxis models the complex, stateful behaviors of real-world threat actors within a simulated organizational environment. It is engineered for security operations center (SOC) training, SIEM validation, and the development of robust detection engineering pipelines.
 
 ## Purpose
 
@@ -14,6 +16,31 @@ The primary objective of AttackAxis is to bridge the gap between abstract threat
 - **Validate Detection Logic**: Test SIEM rules and XDR capabilities against multi-hop breach tracks.
 - **Train SOC Analysts**: Provide a "blackbox" triage experience where malicious signals are buried within realistic background noise.
 - **Forensic Research**: Analyze the correlation between host-based process telemetry and network-based traffic anomalies.
+
+## Key Capabilities
+
+### Stateful Multi-Hop Simulation
+AttackAxis simulates the logical progression of an adversary. Tracks begin with infiltration, followed by local consolidation and discovery, before attempting lateral movement to deeper network tiers.
+
+### Hierarchical Network Modeling
+The simulation environment is structured into a three-tier hierarchical model. Analysts can visualize the network topology and trace the path of an intrusion from the edge firewall down to internal workstations.
+
+### Professional Telemetry Export
+The platform supports a wide array of industry-standard log formats, including **CEF, LEEF, Syslog, JSONL, and CSV**. Analysts can customize schema mappings and time formatting during the export process to ensure compatibility with any SIEM or data lake.
+
+---
+
+## Screen Grabs
+### Mission Setup & Configuration
+![Mission Setup](assets/mission_setup.png)
+
+### Dashboard
+![AttackAxis Banner](assets/attackaxis_dashboard.png)
+
+### Flexible log export
+![AttackAxis Banner](assets/attackaxis_log_export.png)
+
+---
 
 ## Architectural Overview
 
@@ -29,19 +56,6 @@ AttackAxis is built on a modular Python-based engine with a modern decoupled fro
 3.  **Log Constructor (`src/generator.py`)**: Transforms simulated events into high-fidelity logs. It implements intelligent port mapping, forensic artifact generation (process paths, command lines), and human-centric temporal clustering (operating hours).
 4.  **Backend API (`src/api.py`)**: A FastAPI-powered REST interface that serves as the bridge between the simulation engine and external interfaces.
 5.  **Command Dashboard (`web/`)**: A React-based XDR interface that emulates a modern SOC triage environment, featuring incident correlation, threat hunting tools, and network topology visualization.
-
----
-
-## Key Capabilities
-
-### Stateful Multi-Hop Simulation
-AttackAxis simulates the logical progression of an adversary. Tracks begin with infiltration, followed by local consolidation and discovery, before attempting lateral movement to deeper network tiers.
-
-### Hierarchical Network Modeling
-The simulation environment is structured into a three-tier hierarchical model. Analysts can visualize the network topology and trace the path of an intrusion from the edge firewall down to internal workstations.
-
-### Professional Telemetry Export
-The platform supports a wide array of industry-standard log formats, including **CEF, LEEF, Syslog, JSONL, and CSV**. Analysts can customize schema mappings and time formatting during the export process to ensure compatibility with any SIEM or data lake.
 
 ---
 
