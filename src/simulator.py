@@ -10,41 +10,79 @@ class OrgSimulator:
         self.security_coverage = security_coverage
         self.tools = [SecurityTool(name=f"Org-{t}", type=t, coverage_score=security_coverage) for t in tools]
         self.assets: List[Asset] = []
+        self.network_edges: List[Dict[str, str]] = []
         self._generate_assets()
 
     def _generate_assets(self):
-        """Generates mock assets for the organization."""
+        """Generates mock assets and a robust CCNP-style hierarchical network topology."""
         base_ip = ipaddress.IPv4Address("192.168.1.1")
+        
+        # Hierarchy Definition (CCNP R&S Principles)
+        # Level 0: Core (Edge Firewalls)
+        # Level 1: Distribution (Core Routers / Dist Switches)
+        # Level 2: Access (Subnet Switches)
+        # Level 3: Endpoints (Hosts)
+        
+        tiers = {0: [], 1: [], 2: [], 3: []}
+        
+        # 1. Generate Assets with Level assignment
         for i in range(self.size):
             ip = str(base_ip + i)
             mac = ":".join(["{:02x}".format(random.randint(0, 255)) for _ in range(6)])
             dt_rand = random.random()
+            
             if dt_rand < 0.7:
-                device_type = DeviceType.WORKSTATION
-                hostname = f"WKSTN-{i:03d}"
-                description = "Employee workstation"
-            elif dt_rand < 0.9:
-                device_type = DeviceType.SERVER
-                hostname = f"SRV-{i:03d}"
-                description = "Internal server"
+                device_type, level, hostname, desc = DeviceType.WORKSTATION, 3, f"WKSTN-{i:03d}", "Employee workstation"
+            elif dt_rand < 0.85:
+                device_type, level, hostname, desc = DeviceType.SERVER, 3, f"SRV-{i:03d}", "Internal server"
+            elif dt_rand < 0.92:
+                device_type, level, hostname, desc = DeviceType.IOT, 3, f"IOT-{i:03d}", "IoT device"
+            elif dt_rand < 0.96:
+                device_type, level, hostname, desc = DeviceType.ROUTER, 1, f"DIST-RTR-{i:03d}", "Distribution router"
+            elif dt_rand < 0.98:
+                device_type, level, hostname, desc = DeviceType.FIREWALL, 0, f"EDGE-FW-{i:03d}", "Edge security appliance"
             else:
-                infra_rand = random.random()
-                if infra_rand < 0.3:
-                    device_type = DeviceType.FIREWALL
-                    hostname = f"FW-{i:03d}"
-                    description = "Network security appliance"
-                elif infra_rand < 0.6:
-                    device_type = DeviceType.ROUTER
-                    hostname = f"RTR-{i:03d}"
-                    description = "Core router"
-                else:
-                    device_type = DeviceType.IOT
-                    hostname = f"IOT-{i:03d}"
-                    description = "Office IoT device"
-            self.assets.append(Asset(ip=ip, mac=mac, device_type=device_type, hostname=hostname, description=description))
+                device_type, level, hostname, desc = DeviceType.SWITCH, 2, f"ACC-SW-{i:03d}", "Access layer switch"
+                    
+            asset = Asset(ip=ip, mac=mac, device_type=device_type, hostname=hostname, description=desc, level=level)
+            self.assets.append(asset)
+            tiers[level].append(asset)
+
+        # 2. Ensure minimal hierarchy exists
+        if not tiers[0]:
+            fw = Asset(ip=str(base_ip + len(self.assets)), mac="00:00:00:00:00:01", device_type=DeviceType.FIREWALL, hostname="CORE-FW-01", description="Main Edge Firewall", level=0)
+            self.assets.append(fw); tiers[0].append(fw)
+        if not tiers[1]:
+            rtr = Asset(ip=str(base_ip + len(self.assets)), mac="00:00:00:00:00:02", device_type=DeviceType.ROUTER, hostname="CORE-RTR-01", description="Core Router", level=1)
+            self.assets.append(rtr); tiers[1].append(rtr)
+        if not tiers[2]:
+            sw = Asset(ip=str(base_ip + len(self.assets)), mac="00:00:00:00:00:03", device_type=DeviceType.SWITCH, hostname="ACC-SW-01", description="Access Switch", level=2)
+            self.assets.append(sw); tiers[2].append(sw)
+
+        # 3. Build Hierarchical Edges with Full Coverage
+        connected_parents = set()
+        
+        # Link every node to a parent (Bottom-Up Pass)
+        for level in [3, 2, 1]:
+            parent_level = level - 1
+            for child in tiers[level]:
+                parent = random.choice(tiers[parent_level])
+                self.network_edges.append({"source": parent.ip, "target": child.ip})
+                connected_parents.add(parent.ip)
+        
+        # Link every orphan parent to a child (Top-Down Pass)
+        # This prevents "stray" routers/switches that have no downstream connections
+        for level in [0, 1, 2]:
+            child_level = level + 1
+            for parent in tiers[level]:
+                if parent.ip not in connected_parents:
+                    # This parent was skipped in the bottom-up pass, give it a random child
+                    child = random.choice(tiers[child_level])
+                    self.network_edges.append({"source": parent.ip, "target": child.ip})
+                    connected_parents.add(parent.ip)
 
     def get_organization(self) -> Organization:
-        return Organization(name="SimulatedCorp", size=self.size, deployed_tools=self.tools, security_coverage=self.security_coverage, assets=self.assets)
+        return Organization(name="SimulatedCorp", size=len(self.assets), deployed_tools=self.tools, security_coverage=self.security_coverage, assets=self.assets, network_edges=self.network_edges)
 
 class AttackSimulator:
     DATA_SOURCE_MAPPING = {
@@ -175,9 +213,36 @@ class AttackSimulator:
         potential_entry_points = [a for a in self.org.assets if a.device_type in [DeviceType.WORKSTATION, DeviceType.SERVER]]
         if not potential_entry_points: return []
         current_host = random.choice(potential_entry_points)
-        for tactic in self.tactic_order:
-            if tactic not in self.critical_tactics and random.random() < self.deviation:
-                continue 
+        
+        stage_entry = ["initial-access"]
+        stage_consolidation = ["execution", "persistence", "privilege-escalation", "defense-evasion"]
+        stage_intel = ["credential-access", "discovery"]
+        stage_lateral = ["lateral-movement"]
+        stage_objective = ["collection", "command-and-control", "exfiltration", "impact"]
+        
+        max_hops = random.randint(0, 3) 
+        current_hop = 0
+        track_identity = f"CORP\\{random.choice(['admin_svc', 'jsmith', 'mservice', 'backup_exec', 'sysadmin'])}"
+        
+        self._execute_tactics(stage_entry, current_host, track_name, events, track_identity)
+        
+        while current_hop <= max_hops:
+            self._execute_tactics(stage_consolidation, current_host, track_name, events, track_identity)
+            self._execute_tactics(stage_intel, current_host, track_name, events, track_identity)
+            if current_hop < max_hops:
+                lateral_events, next_host = self._execute_lateral(stage_lateral, current_host, track_name, track_identity)
+                events.extend(lateral_events)
+                if next_host:
+                    current_host = next_host
+                    current_hop += 1
+                else: break 
+            else: break
+        self._execute_tactics(stage_objective, current_host, track_name, events, track_identity)
+        return events
+
+    def _execute_tactics(self, tactics: List[str], current_host: Asset, track_name: str, events: List[Dict[str, Any]], track_identity: str):
+        for tactic in tactics:
+            if tactic not in self.critical_tactics and random.random() < self.deviation: continue 
             possible_techs = list(self.tech_by_tactic.get(tactic, []))
             if not possible_techs or random.random() < (self.deviation * 0.5):
                 all_generic = []
@@ -188,18 +253,46 @@ class AttackSimulator:
             num_to_exec = random.randint(1, 3)
             techs_to_exec = random.sample(possible_techs, min(num_to_exec, len(possible_techs)))
             for tech in techs_to_exec:
-                is_lateral = (tactic == "lateral-movement")
-                if is_lateral and random.random() < self.segmentation: continue
+                if tech['id'] == "T1562.001" and random.random() > 0.5:
+                    current_host.edr_status = "Impaired"
                 capable_tools = self._get_tools_for_technique(tech)
                 if not capable_tools: continue
-                if random.random() > self.org.security_coverage: continue
+                effective_coverage = self.org.security_coverage
+                if current_host.edr_status == "Impaired":
+                    capable_tools = [t for t in capable_tools if t.type != ToolType.EDR]
+                    effective_coverage *= 0.5
+                if not capable_tools: continue
+                if random.random() > effective_coverage: continue
                 tool = random.choice(capable_tools)
                 dest_asset = None
-                if is_lateral or tactic == "discovery":
+                is_internal_scan = False
+                if tactic == "discovery":
                     dest_asset = random.choice([a for a in self.org.assets if a.ip != current_host.ip])
-                events.append({"technique": tech, "asset": current_host, "destination_asset": dest_asset, "tool": tool, "is_benign": False, "is_internal": (is_lateral or tactic == "discovery"), "track": track_name})
-                if is_lateral and dest_asset: current_host = dest_asset
-        return events
+                    is_internal_scan = True
+                events.append({"technique": tech, "asset": current_host, "destination_asset": dest_asset, "tool": tool, "is_benign": False, "is_internal": is_internal_scan, "track": track_name, "identity": track_identity})
+
+    def _execute_lateral(self, tactics: List[str], current_host: Asset, track_name: str, track_identity: str):
+        events = []
+        dest_asset = None
+        for tactic in tactics:
+            possible_techs = list(self.tech_by_tactic.get(tactic, []))
+            if not possible_techs: continue
+            tech = random.choice(possible_techs)
+            potential_dest = random.choice([a for a in self.org.assets if a.ip != current_host.ip])
+            is_successful = random.random() >= self.segmentation
+            if is_successful:
+                dest_asset = potential_dest
+                dest_asset.is_compromised = True
+            capable_tools = self._get_tools_for_technique(tech)
+            effective_coverage = self.org.security_coverage
+            if current_host.edr_status == "Impaired":
+                capable_tools = [t for t in capable_tools if t.type != ToolType.EDR]
+                effective_coverage *= 0.5
+            if capable_tools and random.random() <= effective_coverage:
+                tool = random.choice(capable_tools)
+                events.append({"technique": tech, "asset": current_host, "destination_asset": potential_dest, "tool": tool, "is_benign": False, "is_internal": True, "track": track_name, "identity": track_identity})
+            if is_successful: break 
+        return events, dest_asset
 
     def generate_noise(self, activity_level: float, duration_days: int) -> List[Dict[str, Any]]:
         noise_events = []

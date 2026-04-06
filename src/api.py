@@ -102,6 +102,7 @@ async def simulate(config: SimulationConfig):
     return {
         "logs": logs,
         "assets": asset_mapping,
+        "network_edges": org.network_edges,
         "config": config,
         "intel": intel,
         "metrics": {
@@ -130,6 +131,17 @@ async def load_session(name: str):
     
     with open(file_path, 'r') as f:
         return json.load(f)
+
+@app.delete("/api/sessions/{name}")
+async def delete_session(name: str):
+    file_path = os.path.join(SESSIONS_DIR, f"{name}.json")
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="Session not found")
+    try:
+        os.remove(file_path)
+        return {"status": "success", "message": f"Session {name} deleted"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/sessions")
 async def save_session(config: SimulationConfig):

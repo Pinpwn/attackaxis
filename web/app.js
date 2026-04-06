@@ -1,8 +1,18 @@
 const { useState, useEffect, useRef } = React;
 
 const EXPORT_FORMATS = ['CSV', 'JSON', 'JSONL', 'SYSLOG', 'CEF', 'LEEF'];
-const ALL_FIELDS = ['time', 'srcip', 'srcport', 'dstip', 'dstport', 'ttp', 'devicename', 'devicetype', 'severity', 'message', 'tool_name', 'tool_type'];
+const ALL_FIELDS = ['time', 'srcip', 'srcport', 'dstip', 'dstport', 'ttp', 'devicename', 'username', 'process_name', 'command_line', 'severity', 'tool_name', 'tool_type'];
 const TOOL_OPTIONS = ['EDR', 'FW', 'NDR', 'SIEM', 'WAF', 'AV', 'IPS', 'PROXY'];
+const TOOL_ICONS = {
+    'EDR': '🛡️',
+    'FW': '🧱',
+    'NDR': '🕸️',
+    'SIEM': '👁️',
+    'WAF': '🌐',
+    'AV': '🦠',
+    'IPS': '🛑',
+    'PROXY': '🚪'
+};
 
 function ExportModal({ logs, onClose }) {
     const [selectedFields, setSelectedFields] = useState([...ALL_FIELDS]);
@@ -68,8 +78,8 @@ function ExportModal({ logs, onClose }) {
     };
 
     return (
-        <div className="modal-overlay">
-            <div className="modal-content">
+        <div className="modal-overlay" onClick={onClose}>
+            <div className="modal-content" onClick={e => e.stopPropagation()}>
                 <h2 className="mono accent">EXPORT_TELEMETRY_ENGINE</h2>
                 <div className="form-group">
                     <label>EXPORT_FORMAT</label>
@@ -117,6 +127,132 @@ function ExportModal({ logs, onClose }) {
     );
 }
 
+function AssetGraphView({ assets, logs, network_edges }) {
+    const containerRef = useRef(null);
+    const networkInstance = useRef(null);
+
+    useEffect(() => {
+        if (!containerRef.current) return;
+
+        const compromisedIPs = new Set();
+        logs.forEach(l => {
+            if (!l.is_benign && l.tactics && (l.tactics.includes("lateral-movement") || l.tactics.includes("execution") || l.tactics.includes("initial-access"))) {
+                if (l.srcip) compromisedIPs.add(l.srcip);
+                if (l.dstip) compromisedIPs.add(l.dstip);
+            }
+        });
+
+        const nodes = new vis.DataSet(assets.map(a => {
+            const isCompromised = compromisedIPs.has(a.ip);
+            let shape = 'dot';
+            let color = { background: '#1c2128', border: '#8b949e' };
+            let size = 15;
+            
+            if (a.device_type === 'Firewall') { shape = 'triangle'; size = 25; color.border = '#00f2ff'; color.background = 'rgba(0, 242, 255, 0.1)'; }
+            else if (a.device_type === 'Router') { shape = 'diamond'; size = 20; color.border = '#c9d1d9'; }
+            else if (a.device_type === 'Server') { shape = 'square'; size = 18; color.border = '#58a6ff'; }
+            
+            if (isCompromised) {
+                color.border = '#ff3e3e';
+                color.background = 'rgba(255, 62, 62, 0.3)';
+                size += 5;
+            }
+
+            return {
+                id: a.ip,
+                label: a.hostname + '\n' + a.ip,
+                title: `${a.ip}\n${a.device_type}\n${a.description}`,
+                shape: shape,
+                size: size,
+                color: color,
+                level: a.level, // Crucial for hierarchical layout
+                font: { color: isCompromised ? '#ff3e3e' : '#c9d1d9', size: 10, face: 'JetBrains Mono' }
+            };
+        }));
+
+        const edgesArray = (network_edges || []).map((e, i) => ({
+            id: `edge_${i}`,
+            from: e.source,
+            to: e.target,
+            color: { color: '#8b949e', opacity: 0.8 },
+            smooth: { type: 'continuous' }
+        }));
+        
+        logs.forEach(l => {
+            if (!l.is_benign && l.tactics && l.tactics.includes("lateral-movement") && l.srcip && l.dstip) {
+                const edgeId = `lat_${l.srcip}_${l.dstip}`;
+                edgesArray.push({
+                    id: edgeId,
+                    from: l.srcip,
+                    to: l.dstip,
+                    color: { color: '#ff3e3e', opacity: 1.0 },
+                    arrows: 'to',
+                    dashes: true,
+                    width: 2
+                });
+            }
+        });
+
+        const edges = new vis.DataSet(edgesArray);
+        const graphData = { nodes: nodes, edges: edges };
+        const options = {
+            layout: {
+                hierarchical: {
+                    direction: 'UD',
+                    sortMethod: 'directed',
+                    nodeSpacing: 150,
+                    levelSeparation: 150,
+                    parentCentralization: true
+                }
+            },
+            physics: {
+                hierarchicalRepulsion: {
+                    nodeDistance: 150
+                }
+            },
+            interaction: { hover: true, tooltipDelay: 200 }
+        };
+
+        try {
+            if (networkInstance.current) {
+                networkInstance.current.destroy();
+            }
+            networkInstance.current = new vis.Network(containerRef.current, graphData, options);
+        } catch (err) {
+            console.error("VIS_NETWORK_CRASH", err);
+        }
+
+        
+        return () => {
+            if (networkInstance.current) {
+                networkInstance.current.destroy();
+                networkInstance.current = null;
+            }
+        };
+    }, [assets, logs, network_edges]);
+    
+    return <div ref={containerRef} style={{height: 600, width: '100%', border: '1px solid var(--border)', borderRadius: 6, background: 'var(--bg-base)'}}></div>;
+}
+
+function WarRoomModal({ incident, onClose }) {
+    if (!incident) return null;
+    return (
+        <div className="modal-overlay" style={{zIndex: 4000}} onClick={onClose}>
+            <div className="modal-content" style={{width: '80%', maxWidth: '1000px'}} onClick={e => e.stopPropagation()}>
+                <h2 className="mono accent">WAR_ROOM // {incident.id}</h2>
+                <div style={{maxHeight: '60vh', overflowY: 'auto'}}>
+                    {incident.logs.map((l, i) => (
+                        <div key={i} className="event-inspector" style={{borderLeft: '2px solid var(--accent-red)'}}>
+                            {JSON.stringify(l, null, 2)}
+                        </div>
+                    ))}
+                </div>
+                <button className="btn" style={{marginTop: 20}} onClick={onClose}>CLOSE</button>
+            </div>
+        </div>
+    );
+}
+
 function App() {
     const [view, setView] = useState('setup');
     const [mitreObjects, setMitreObjects] = useState({ groups: [], campaigns: [], software: [] });
@@ -125,8 +261,7 @@ function App() {
     const [data, setData] = useState(null);
     const [activeTab, setActiveTab] = useState('xdr');
     const [showExport, setShowExport] = useState(false);
-    
-    // Threat Hunting State
+    const [selectedIncident, setSelectedIncident] = useState(null);
     const [searchQuery, setSearchQuery] = useState('');
     const [expandedLogId, setExpandedLogId] = useState(null);
 
@@ -161,8 +296,6 @@ function App() {
 
     const renderXdrCharts = () => {
         Object.values(chartRefs).forEach(r => r.current?.destroy());
-        
-        // Signal Trend Histogram
         const attackData = {};
         const noiseData = {};
         data.logs.forEach(l => { 
@@ -173,18 +306,17 @@ function App() {
         const days = Array.from(new Set([...Object.keys(attackData), ...Object.keys(noiseData)])).sort();
         
         chartRefs.trend.current = new Chart(document.getElementById('chartTrend'), {
-            type: 'bar',
+            type: 'line',
             data: { 
                 labels: days, 
                 datasets: [
-                    { label: 'Malicious Alerts', data: days.map(d => attackData[d] || 0), backgroundColor: '#ff3e3e' },
-                    { label: 'Benign Noise', data: days.map(d => noiseData[d] || 0), backgroundColor: '#30363d' }
+                    { label: 'Malicious Alerts', data: days.map(d => attackData[d] || 0), backgroundColor: 'rgba(239, 68, 68, 0.2)', borderColor: '#ef4444', fill: true, tension: 0.4 },
+                    { label: 'Benign Noise', data: days.map(d => noiseData[d] || 0), backgroundColor: 'rgba(148, 163, 184, 0.1)', borderColor: '#94a3b8', fill: true, tension: 0.4 }
                 ]
             },
-            options: { maintainAspectRatio: false, scales: { x: { stacked: true, grid: { color: '#161b22' } }, y: { stacked: true, grid: { color: '#161b22' } } }, plugins: { legend: { position: 'bottom' } } }
+            options: { maintainAspectRatio: false, scales: { x: { grid: { color: '#1e293b' } }, y: { grid: { color: '#1e293b' } } }, plugins: { legend: { position: 'bottom' } } }
         });
 
-        // Tactic Heatmap
         const tactics = data.metrics.tactic_counts;
         chartRefs.tactics.current = new Chart(document.getElementById('chartTactics'), {
             type: 'bar',
@@ -213,7 +345,27 @@ function App() {
         finally { setLoading(false); }
     };
 
-    // Helper to group raw logs into correlated "Incidents" for the XDR view
+    const saveSession = async () => {
+        try {
+            await fetch('/api/sessions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(config) });
+            alert("MISSION_SAVED");
+            const res = await fetch('/api/sessions');
+            setSessions(await res.json());
+        } catch(e) { alert("SAVE_ERROR"); }
+    };
+
+    const deleteSession = async (name) => {
+        if (!confirm(`Are you sure you want to delete session '${name}'?`)) return;
+        try {
+            await fetch(`/api/sessions/${name}`, { method: 'DELETE' });
+            const res = await fetch('/api/sessions');
+            setSessions(await res.json());
+            if (config.session_name === name) {
+                setConfig({...config, session_name: `mission_${new Date().getTime().toString().slice(-6)}`});
+            }
+        } catch(e) { alert("DELETE_ERROR"); }
+    };
+
     const getIncidents = () => {
         if (!data) return [];
         const incidentsMap = {};
@@ -247,6 +399,7 @@ function App() {
             <div className="main-container">
                 {loading && <div className="loading-overlay"><div className="mono accent" style={{fontSize:24, letterSpacing:4}}>EXECUTING_SIMULATION...</div></div>}
                 {showExport && <ExportModal logs={data.logs} onClose={() => setShowExport(false)} />}
+                {selectedIncident && <WarRoomModal incident={selectedIncident} onClose={() => setSelectedIncident(null)} />}
                 
                 {view === 'setup' ? (
                     <div className="setup-view">
@@ -254,34 +407,47 @@ function App() {
                         <div className="setup-grid">
                             <div className="setup-section col-6">
                                 <span className="section-label">01 // TARGETING</span>
-                                <div className="form-group"><label>ADVERSARY</label>
+                                <div className="form-group"><label title="Select the threat actor or malware to simulate based on MITRE ATT&CK profiles.">ADVERSARY</label>
                                     <select value={config.target_apt} onChange={e => setConfig({...config, target_apt: e.target.value})}>
                                         <optgroup label="Groups">{mitreObjects.groups.map(g => <option key={g} value={g}>{g}</option>)}</optgroup>
                                         <optgroup label="Software">{mitreObjects.software.map(s => <option key={s} value={s}>{s}</option>)}</optgroup>
                                     </select>
                                 </div>
-                                <div className="form-group"><label>DURATION (DAYS)</label><input type="number" value={config.duration_days} onChange={e => setConfig({...config, duration_days: parseInt(e.target.value)})} /></div>
-                                <div className="form-group"><label>MISSION_ID</label><input type="text" value={config.session_name} onChange={e => setConfig({...config, session_name: e.target.value})} /></div>
-                                <div className="session-list"><label>ARCHIVES</label>{sessions.map(s => <div key={s} className="session-item" onClick={() => loadSession(s)}>{s}</div>)}</div>
+                                <div className="form-group"><label title="Total length of the campaign. Higher values spread events out for 'Low and Slow' realism.">DURATION ({config.duration_days} DAYS)</label><input type="range" min="1" max="365" step="1" value={config.duration_days} onChange={e => setConfig({...config, duration_days: parseInt(e.target.value)})} /></div>
+                                <div className="form-group"><label title="Unique identifier for saving and recalling this simulation configuration.">MISSION_ID</label>
+                                    <div style={{display:'flex', gap: 10}}>
+                                        <input type="text" value={config.session_name} onChange={e => setConfig({...config, session_name: e.target.value})} style={{flex: 1}}/>
+                                        <button className="btn" onClick={saveSession}>SAVE</button>
+                                    </div>
+                                </div>
+                                <div className="session-list"><label title="Previously saved mission configurations.">ARCHIVES</label>
+                                    {sessions.map(s => (
+                                        <div key={s} className="session-item" style={{display:'flex', justifyContent:'space-between'}}>
+                                            <span onClick={() => loadSession(s)} style={{flex:1}}>{s}</span>
+                                            <span onClick={(e) => { e.stopPropagation(); deleteSession(s); }} style={{color:'var(--accent-red)', fontWeight:'bold', cursor:'pointer'}}>X</span>
+                                        </div>
+                                    ))}
+                                </div>
                             </div>
                             <div className="setup-section col-6">
                                 <span className="section-label">02 // ENVIRONMENT</span>
-                                <div className="form-group"><label>INDUSTRY</label>
+                                <div className="form-group"><label title="Industry context can influence the probability of specific initial access vectors.">INDUSTRY</label>
                                     <select value={config.industry} onChange={e => setConfig({...config, industry: e.target.value})}>
                                         <option value="Financial">Financial Services</option><option value="Healthcare">Healthcare</option><option value="Technology">Technology</option><option value="Government">Government</option>
                                     </select>
                                 </div>
-                                <div className="form-group"><label>NODES</label><input type="number" value={config.org_size} onChange={e => setConfig({...config, org_size: parseInt(e.target.value)})} /></div>
-                                <div className="form-group"><label>SEGMENTATION ({Math.round(config.network_segmentation*100)}%)</label><input type="range" min="0" max="1" step="0.1" value={config.network_segmentation} onChange={e => setConfig({...config, network_segmentation: parseFloat(e.target.value)})} /></div>
-                                <div className="form-group"><label>SIMULATION_DEVIATION ({Math.round(config.simulation_deviation*100)}%)</label><input type="range" min="0" max="1" step="0.1" value={config.simulation_deviation} onChange={e => setConfig({...config, simulation_deviation: parseFloat(e.target.value)})} /></div>
-                                <div className="form-group"><label>COVERAGE ({Math.round(config.security_coverage*100)}%)</label><input type="range" min="0" max="0.9" step="0.05" value={config.security_coverage} onChange={e => setConfig({...config, security_coverage: parseFloat(e.target.value)})} /></div>
+                                <div className="form-group"><label title="Total number of simulated endpoints, routers, and servers in the network.">NODES</label><input type="number" value={config.org_size} onChange={e => setConfig({...config, org_size: parseInt(e.target.value)})} /></div>
+                                <div className="form-group"><label title="Higher segmentation decreases the probability of successful lateral movement.">SEGMENTATION ({Math.round(config.network_segmentation*100)}%)</label><input type="range" min="0" max="1" step="0.1" value={config.network_segmentation} onChange={e => setConfig({...config, network_segmentation: Math.round(parseFloat(e.target.value)*100)/100})} /></div>
+                                <div className="form-group"><label title="Determines how closely the attacker follows the standard MITRE profile vs substituting generic techniques.">SIMULATION_DEVIATION ({Math.round(config.simulation_deviation*100)}%)</label><input type="range" min="0" max="1" step="0.1" value={config.simulation_deviation} onChange={e => setConfig({...config, simulation_deviation: Math.round(parseFloat(e.target.value)*100)/100})} /></div>
+                                <div className="form-group"><label title="Global probability that an active security tool will successfully detect and log a technique.">COVERAGE ({Math.round(config.security_coverage*100)}%)</label><input type="range" min="0" max="0.9" step="0.05" value={config.security_coverage} onChange={e => setConfig({...config, security_coverage: Math.round(parseFloat(e.target.value)*100)/100})} /></div>
+                                <div className="form-group"><label title="Volume of legitimate background events (false positives) generated per day to mask malicious activity.">NOISE_LEVEL ({Math.round(config.user_activity_level*100)}%)</label><input type="range" min="0" max="1" step="0.1" value={config.user_activity_level} onChange={e => setConfig({...config, user_activity_level: Math.round(parseFloat(e.target.value)*100)/100})} /></div>
                                 <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:10}}>
                                     {TOOL_OPTIONS.map(t => (
-                                        <label key={t} style={{fontSize:11, display:'flex', alignItems:'center'}}>
+                                        <label key={t} style={{fontSize:11, display:'flex', alignItems:'center'}} title={`Toggle ${t} telemetry collection.`}>
                                             <input type="checkbox" checked={config.tools.includes(t)} onChange={e => {
                                                 const ts = e.target.checked ? [...config.tools, t] : config.tools.filter(x => x !== t);
                                                 setConfig({...config, tools: ts});
-                                            }} style={{width:'auto', marginRight:5}} /> {t}
+                                            }} style={{width:'auto', marginRight:5}} /> {TOOL_ICONS[t]} {t}
                                         </label>
                                     ))}
                                 </div>
@@ -309,7 +475,6 @@ function App() {
                                 <div className={`tab ${activeTab === 'hunting' ? 'active' : ''}`} onClick={() => setActiveTab('hunting')}>THREAT_HUNTING</div>
                                 <div className={`tab ${activeTab === 'assets' ? 'active' : ''}`} onClick={() => setActiveTab('assets')}>ASSET_GRAPH</div>
                             </div></div>
-                            
                             {activeTab === 'xdr' && (
                                 <React.Fragment>
                                     <div className="col-8" style={{display:'flex', flexDirection:'column', gap:'1.5rem'}}>
@@ -327,7 +492,7 @@ function App() {
                                             <div className="widget-title">INCIDENT_TRIAGE_QUEUE</div>
                                             <div style={{overflowY:'auto', flex:1, paddingRight:10}}>
                                                 {getIncidents().map(inc => (
-                                                    <div key={inc.id} className={`incident-card ${inc.maxSev.toLowerCase()}`}>
+                                                    <div key={inc.id} className={`incident-card ${inc.maxSev.toLowerCase()}`} onClick={() => setSelectedIncident(inc)}>
                                                         <div className="incident-header">
                                                             <span className="incident-id">{inc.id}</span>
                                                             <span className={`badge bg-${inc.maxSev.toLowerCase()}`}>{inc.maxSev}</span>
@@ -347,23 +512,15 @@ function App() {
                                     </div>
                                 </React.Fragment>
                             )}
-                            
                             {activeTab === 'hunting' && (
                                 <div className="widget col-12" style={{display:'flex', flexDirection:'column'}}>
                                     <div style={{marginBottom:15}}>
-                                        <input 
-                                            className="search-bar" 
-                                            placeholder="> SEARCH_LOGSTREAM (e.g., 192.168.1.5, T1059, PowerShell)..." 
-                                            value={searchQuery}
-                                            onChange={e => setSearchQuery(e.target.value)}
-                                        />
+                                        <input className="search-bar" placeholder="> SEARCH_LOGSTREAM (e.g., 192.168.1.5, T1059, PowerShell)..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
                                     </div>
                                     <div style={{overflowY:'auto', flex:1}}>
                                         <table>
                                             <thead>
-                                                <tr>
-                                                    <th>TIME</th><th>HOST</th><th>TTP</th><th>SRC_IP</th><th>DST_IP</th><th>SEV</th><th>TOOL</th>
-                                                </tr>
+                                                <tr><th>TIME</th><th>HOST</th><th>USER</th><th>TTP</th><th>SRC_IP</th><th>PROCESS</th><th>SEV</th><th>TOOL</th></tr>
                                             </thead>
                                             <tbody>
                                                 {filteredLogs.map((l, i) => (
@@ -371,37 +528,27 @@ function App() {
                                                         <tr className="clickable-row" onClick={() => setExpandedLogId(expandedLogId === i ? null : i)}>
                                                             <td className="mono" style={{color:'var(--text-secondary)'}}>{l.time.slice(11,19)}</td>
                                                             <td><strong>{l.devicename}</strong></td>
+                                                            <td className="mono" style={{color:'var(--accent-orange)'}}>{l.username || '-'}</td>
                                                             <td className="mono">{l.ttp}</td>
                                                             <td className="mono">{l.srcip}</td>
-                                                            <td className="mono">{l.dstip || '-'}</td>
+                                                            <td className="mono" style={{maxWidth:150, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>{l.process_name || '-'}</td>
                                                             <td><span className={`badge bg-${l.severity.toLowerCase()}`}>{l.severity}</span></td>
                                                             <td className="accent">{l.tool_name}</td>
                                                         </tr>
                                                         {expandedLogId === i && (
-                                                            <tr>
-                                                                <td colSpan="7" style={{padding:0, border:0}}>
-                                                                    <div className="event-inspector">
-                                                                        {JSON.stringify(l, null, 2)}
-                                                                    </div>
-                                                                </td>
-                                                            </tr>
+                                                            <tr><td colSpan="8" style={{padding:0, border:0}}><div className="event-inspector">{JSON.stringify(l, null, 2)}</div></td></tr>
                                                         )}
                                                     </React.Fragment>
                                                 ))}
                                             </tbody>
                                         </table>
-                                        {filteredLogs.length === 0 && <div style={{padding:20, textAlign:'center', color:'var(--text-secondary)'}}>NO_RECORDS_FOUND</div>}
                                     </div>
                                 </div>
                             )}
-
                             {activeTab === 'assets' && (
                                 <div className="widget col-12">
                                     <div className="widget-title">NETWORK_ASSET_INVENTORY</div>
-                                    <table><thead><tr><th>IP_ADDRESS</th><th>MAC_ADDR</th><th>DEVICE_TYPE</th><th>HOSTNAME</th></tr></thead>
-                                    <tbody>{data.assets.map((a, i) => (
-                                        <tr key={i}><td className="mono accent">{a.ip}</td><td className="mono">{a.mac}</td><td>{a.device_type}</td><td className="mono">{a.hostname}</td></tr>
-                                    ))}</tbody></table>
+                                    <AssetGraphView assets={data.assets} logs={data.logs} network_edges={data.network_edges} />
                                 </div>
                             )}
                         </div>

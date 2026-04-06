@@ -1,42 +1,51 @@
-# 🛡️ AttackAxis: Elite SOC Simulation Platform
+# AttackAxis
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![MITRE ATT&CK](https://img.shields.io/badge/Framework-MITRE%20ATT%26CK-orange.svg)](https://attack.mitre.org/)
 
-**AttackAxis** is a high-fidelity adversarial simulation engine designed to generate realistic security telemetry for SOC training, SIEM validation, and detection engineering. It bridges the gap between static threat intelligence and actionable logs by simulating complex "Attack Chains" across a virtual organizational landscape.
+## Introduction
+
+AttackAxis is a sophisticated adversarial simulation platform designed to generate high-fidelity security telemetry. Unlike static log generators, AttackAxis models the complex, stateful behaviors of real-world threat actors within a simulated organizational environment. It is engineered for security operations center (SOC) training, SIEM validation, and the development of robust detection engineering pipelines.
+
+## Purpose
+
+The primary objective of AttackAxis is to bridge the gap between abstract threat intelligence and practical defensive operations. By simulating cohesive "Attack Chains" rather than isolated events, the platform provides analysts with a realistic environment to:
+- **Validate Detection Logic**: Test SIEM rules and XDR capabilities against multi-hop breach tracks.
+- **Train SOC Analysts**: Provide a "blackbox" triage experience where malicious signals are buried within realistic background noise.
+- **Forensic Research**: Analyze the correlation between host-based process telemetry and network-based traffic anomalies.
+
+## Architectural Overview
+
+AttackAxis is built on a modular Python-based engine with a modern decoupled frontend. The architecture follows a data-driven approach, leveraging the MITRE ATT&CK® framework via STIX integration.
+
+### Core Components
+
+1.  **Threat Ingestor (`src/ingestor.py`)**: Automatically retrieves and parses the latest MITRE Enterprise ATT&CK dataset. it maps techniques to their required data sources, enabling logical tool attribution.
+2.  **Simulation Engine (`src/simulator.py`)**: 
+    - **Topology Module**: Generates a hierarchical network layout (Core, Distribution, Access) based on standard network engineering principles.
+    - **Breach Engine**: Orchestrates stateful attack tracks. It maintains session state, handles lateral movement pivots, and simulates defensive evasion (e.g., EDR impairment).
+    - **Noise Generator**: Injects realistic false positives based on actual administrative and user behaviors mapped to MITRE TTPs.
+3.  **Log Constructor (`src/generator.py`)**: Transforms simulated events into high-fidelity logs. It implements intelligent port mapping, forensic artifact generation (process paths, command lines), and human-centric temporal clustering (operating hours).
+4.  **Backend API (`src/api.py`)**: A FastAPI-powered REST interface that serves as the bridge between the simulation engine and external interfaces.
+5.  **Command Dashboard (`web/`)**: A React-based XDR interface that emulates a modern SOC triage environment, featuring incident correlation, threat hunting tools, and network topology visualization.
 
 ---
 
-## 🚀 Key Features
+## Key Capabilities
 
-### 1. **Stateful Attack Chain Engine**
-Unlike random log generators, AttackAxis simulates cohesive **Breach Tracks**. Adversaries infiltrate an entry point, perform discovery, and move laterally across internal assets, creating a traceable and logical sequence of alerts.
+### Stateful Multi-Hop Simulation
+AttackAxis simulates the logical progression of an adversary. Tracks begin with infiltration, followed by local consolidation and discovery, before attempting lateral movement to deeper network tiers.
 
-### 2. **Context-Aware Telemetry**
-- **Tool Attribution**: Alerts are intelligently mapped to logically capable tools (EDR, NDR, FW, SIEM, WAF) based on MITRE STIX data sources.
-- **Network Realism**: Includes `srcport` and `dstport` logic based on specific TTPs (e.g., RDP on 3389, SMB on 445).
-- **East-West Simulation**: Realistically models internal lateral movement and discovery traffic.
+### Hierarchical Network Modeling
+The simulation environment is structured into a three-tier hierarchical model. Analysts can visualize the network topology and trace the path of an intrusion from the edge firewall down to internal workstations.
 
-### 3. **High-Fidelity Noise Floor**
-Simulates "The Needle in the Haystack" by injecting **50+ False Positive Scenarios**. Normal administrative and user activities (e.g., authorized PowerShell scripts, Windows Updates) trigger legitimate MITRE TTPs, challenging analysts to distinguish noise from true threats.
-
-### 4. **Professional Command Interface**
-A sleek, high-tech terminal dashboard optimized for elite analyst UX:
-- **Global Risk Index**: Real-time organizational health monitoring.
-- **Signal-to-Noise Ratio**: Metric-driven complexity assessment.
-- **Tactic Heatmap**: Visualizes the attack progression across the MITRE framework.
-- **Entity Dossier**: Deep-dive into adversarial intelligence and aliases.
-
-### 5. **Elite Export Suite**
-Export high-fidelity datasets in multiple professional formats:
-- **Formats**: CSV, JSON, JSONL, Syslog, CEF (Common Event Format), LEEF.
-- **Custom Mapping**: Surgically select columns and apply schema aliases (e.g., `srcip` → `deviceAddress`) during the export workflow.
-- **Time Formatting**: Support for ISO 8601, Unix Epoch, and custom Python date strings.
+### Professional Telemetry Export
+The platform supports a wide array of industry-standard log formats, including **CEF, LEEF, Syslog, JSONL, and CSV**. Analysts can customize schema mappings and time formatting during the export process to ensure compatibility with any SIEM or data lake.
 
 ---
 
-## 🛠️ Installation
+## Installation
 
 ### Prerequisites
 - Python 3.10 or higher
@@ -48,63 +57,44 @@ Export high-fidelity datasets in multiple professional formats:
    cd attackaxis
    ```
 
-2. **Create and activate a virtual environment**:
+2. **Initialize Environment**:
    ```bash
    python3 -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
-   ```
-
-3. **Install dependencies**:
-   ```bash
+   source venv/bin/activate
    pip install -r requirements.txt
    ```
 
 ---
 
-## 🕹️ Usage
+## Usage
 
-### Engaging the Mission (Web UI)
-Launch the professional command interface on elite port **1337**:
+### Web Interface (Operational)
+To launch the XDR Command Interface:
 ```bash
 python3 -m src.api
 ```
-Navigate to **`http://localhost:1337`** to begin.
+Navigate to `http://localhost:1337` to begin a mission.
 
-1.  **Mission Setup**: Define your target APT, organization vertical, and defense posture.
-2.  **Simulation Deviation**: Adjust the slider to introduce unpredictability into the attack path.
-3.  **Command Center**: Analyze the generated logs, visualize risk trends, and deep-dive into threat intel.
-4.  **Telemetry Deployment**: Use the **EXPORT** suite to generate datasets for your SIEM or training platform.
+1.  **Mission Setup**: Configure the target adversary, network density, and defensive posture.
+2.  **Analysis**: Use the **Triage Queue** to investigate correlated incidents or the **Threat Hunting** tab for granular log analysis.
+3.  **Export**: Deploy the generated dataset using the integrated Export Engine.
 
-### CLI Mode (Legacy)
-For a quick terminal-based simulation:
+### CLI Mode (Automated)
+For scripted or headless simulations:
 ```bash
 python3 -m src.main
 ```
 
 ---
 
-## 🏗️ Architecture
+## Community and Contributions
 
-- **`src/ingestor.py`**: Automated MITRE Enterprise ATT&CK parser via STIX.
-- **`src/simulator.py`**: The stateful breach track and noise generation engine.
-- **`src/generator.py`**: High-fidelity log constructor with intelligent port mapping.
-- **`src/api.py`**: FastAPI backend serving simulation logic and telemetry.
-- **`web/`**: Modern React-based frontend with a hi-tech terminal aesthetic.
+We welcome contributions from the security community. Please review `CONTRIBUTING.md` for technical guidelines and our development workflow.
 
----
+## License
 
-## 🤝 Contributing
+AttackAxis is released under the **Apache License 2.0**. See the `LICENSE` file for full details.
 
-Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on how to improve the simulation engine or dashboard.
+## Disclaimer
 
----
-
-## 📜 License
-
-This project is licensed under the **Apache License 2.0** - see the [LICENSE](LICENSE) file for details.
-
----
-
-## ⚠️ Disclaimer
-
-AttackAxis is intended for **authorized security research, training, and defensive validation only**. The logs generated are simulations and do not represent actual system compromises. Use responsibly.
+AttackAxis is intended for **authorized security research and defensive validation only**. The logs and scenarios generated are simulations and do not represent actual system compromises.

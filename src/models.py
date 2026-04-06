@@ -31,6 +31,9 @@ class Asset(BaseModel):
     device_type: DeviceType
     hostname: str
     description: str
+    is_compromised: bool = False
+    edr_status: str = "Active" # Can be "Active", "Impaired", "Offline"
+    level: int = 0 # Hierarchical level (0: Core, 1: Dist, 2: Access, etc)
 
 class SecurityTool(BaseModel):
     name: str
@@ -43,6 +46,7 @@ class Organization(BaseModel):
     deployed_tools: List[SecurityTool]
     security_coverage: float = Field(..., ge=0, le=0.9) # Max 90% as per requirements
     assets: List[Asset] = []
+    network_edges: List[Dict[str, str]] = []
 
 class LogEntry(BaseModel):
     time: datetime
@@ -53,6 +57,9 @@ class LogEntry(BaseModel):
     ttp: Optional[str] = None # MITRE Technique ID
     devicename: str
     devicetype: str
+    username: Optional[str] = None # Forensic field
+    process_name: Optional[str] = None # Forensic field
+    command_line: Optional[str] = None # Forensic field
     severity: str # Low, Medium, High, Critical
     message: str
     additional_fields: Dict[str, Any] = {}

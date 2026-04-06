@@ -51,12 +51,41 @@ class LogGenerator:
         total_seconds = self.config.duration_days * 24 * 3600
         start_time = datetime.now() - timedelta(days=self.config.duration_days)
         
-        # Generate random sorted offsets for events
-        offsets = sorted([random.randint(0, total_seconds) for _ in range(len(self.events))])
+        # Track temporal state for stateful attack chains
+        track_times = {}
+        # Simulate Attacker working hours (e.g., 08:00 - 18:00 UTC)
+        attacker_start_hour = random.randint(5, 12)
+        attacker_end_hour = attacker_start_hour + 10
         
-        for i, event in enumerate(self.events):
-            # Attack time
-            attack_time = start_time + timedelta(seconds=offsets[i])
+        for event in self.events:
+            is_benign = event.get('is_benign', False)
+            track_name = event.get('track')
+            identity = event.get('identity')
+            
+            if is_benign:
+                # Noise happens randomly throughout the entire simulation window
+                offset = random.randint(0, total_seconds)
+                attack_time = start_time + timedelta(seconds=offset)
+            else:
+                # Attack tracks are stateful and progress over time
+                if track_name not in track_times:
+                    # Start the track randomly within the first 80% of the window
+                    track_start_offset = random.randint(0, int(total_seconds * 0.8))
+                    track_times[track_name] = start_time + timedelta(seconds=track_start_offset)
+                
+                attack_time = track_times[track_name]
+                
+                # Advance time, pushing interactive tasks into "working hours"
+                if attack_time.hour < attacker_start_hour or attack_time.hour > attacker_end_hour:
+                    # Fast forward to next shift if this is an interactive tactic
+                    if any(t in event['technique'].get('tactics', []) for t in ["discovery", "lateral-movement", "execution"]):
+                        hours_to_add = (24 - attack_time.hour + attacker_start_hour) % 24
+                        if hours_to_add == 0: hours_to_add = 24
+                        attack_time += timedelta(hours=hours_to_add, minutes=random.randint(10, 60))
+                
+                max_gap = max(3600, int((total_seconds * 0.2) / 10)) # Spread steps over remaining time
+                track_times[track_name] = attack_time + timedelta(seconds=random.randint(600, max_gap))
+
             # Simulation of detection latency
             latency = random.expovariate(1.0 / self.config.detection_latency_min) if self.config.detection_latency_min > 0 else 0
             detection_time = attack_time + timedelta(minutes=latency)
@@ -75,6 +104,22 @@ class LogGenerator:
             is_network_tool = tool.type in [ToolType.NDR, ToolType.FW, ToolType.IDS, ToolType.IPS, ToolType.WAF, ToolType.PROXY]
             is_internal = event.get('is_internal', False)
             dest_asset = event.get('destination_asset')
+            
+            # Forensic payload generation
+            process_name = None
+            command_line = None
+            if tool.type == ToolType.EDR:
+                if "PowerShell" in tech['name']:
+                    process_name = "powershell.exe"
+                    command_line = "powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -EncodedCommand JABz..."
+                elif "Service" in tech['name']:
+                    process_name = "services.exe"
+                    command_line = f"sc create updater binPath= \"C:\\Windows\\Temp\\{random.randint(1000,9999)}.exe\" start= auto"
+                elif "Process" in tech['name']:
+                    process_name = random.choice(["cmd.exe", "svchost.exe", "wmic.exe", "rundll32.exe"])
+                    command_line = f"{process_name} /c echo \"Init\""
+                else:
+                    process_name = "unknown.exe"
             
             if not is_benign:
                 # 1. Determine Port Realism based on TTP
@@ -115,10 +160,14 @@ class LogGenerator:
                 "tactics": tech.get('tactics', []),
                 "devicename": asset.hostname,
                 "devicetype": asset.device_type.value,
+                "username": identity if identity else (f"CORP\\{random.choice(['sys', 'local', 'network'])}" if not is_benign else None),
+                "process_name": process_name,
+                "command_line": command_line,
                 "severity": "Low" if is_benign else self._get_severity(tech['id'], tool.type),
                 "message": message,
                 "tool_name": tool.name,
                 "tool_type": tool.type.value,
+                "track": track_name,
                 "is_benign": is_benign
             }
             
